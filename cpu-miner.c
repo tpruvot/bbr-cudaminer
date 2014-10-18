@@ -151,7 +151,7 @@ static int opt_scantime = 5;
 static json_t *opt_config;
 static const bool opt_time = true;
 static const enum mining_algo opt_algo = ALGO_WILD_KECCAK;
-static int opt_n_threads;
+static int opt_n_threads = 1;
 static int num_processors;
 static char *rpc_url;
 static char *rpc_userpass;
@@ -209,9 +209,8 @@ struct option {
 #endif
 
 static char const usage[] =
-	"\
-	Usage: " PROGRAM_NAME " [OPTIONS]\n\
-	Options:\n\
+"Usage: " PROGRAM_NAME " [OPTIONS]\n\
+Options:\n\
 	-a, --algo=ALGO       specify the algorithm to use\n\
 	                      wildkeccak   WildKeccak\n\
 	-k  --scratchpad=URL  URL of inital scratchpad file\n\
@@ -1525,10 +1524,12 @@ static void *stratum_thread(void *userdata) {
 
 		if(!strcmp(rpc2_id, ""))
 		{
-			applog(LOG_ERR, "Re-login, disconnecting...");
+			if (opt_debug)
+				applog(LOG_DEBUG, "disconnecting...");
 			stratum_disconnect(&stratum);
 			//not logged in, try to relogin
-			applog(LOG_ERR, "Re-connec... and relogin...");
+			if (opt_debug)
+				applog(LOG_DEBUG, "Re-connect and relogin...");
 			if(!stratum_connect(&stratum, stratum.url) || !stratum_authorize(&stratum, rpc_user, rpc_pass))
 			{
 				stratum_disconnect(&stratum);
