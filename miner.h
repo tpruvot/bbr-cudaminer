@@ -177,8 +177,8 @@ extern struct work_restart *work_restart;
 extern const char jsonrpc_2;
 extern char rpc2_id[65];
 
-#define WILD_KECCAK_SCRATCHPAD_BUFFSIZE  (64<<20)
-//#define WILD_KECCAK_SCRATCHPAD_BUFFSIZE (1 << 25)
+// pad 197340288
+#define WILD_KECCAK_SCRATCHPAD_BUFFSIZE (1UL << 28)
 struct  __attribute__((__packed__)) scratchpad_hi
 {
     unsigned char prevhash[32];
