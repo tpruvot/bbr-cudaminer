@@ -1244,7 +1244,7 @@ static void *miner_thread(void *userdata)
 			pthread_mutex_unlock(&stats_lock);
 		}
 
-		 applog(LOG_INFO, "GPU #%d: %s: %lu hashes, %.2f kh/s", thr_id, devstrs[thr_id], hashes_done, 1e-3 * thr_hashrates[thr_id]);
+		applog(LOG_INFO, "GPU #%d: %s: %lu hashes, %.2f kh/s", thr_id, devstrs[thr_id], hashes_done, 1e-3 * thr_hashrates[thr_id]);
 
 		if(rc && !submit_work(mythr, &work)) break;
 	}

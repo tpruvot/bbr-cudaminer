@@ -1,20 +1,15 @@
-extern "C"
-{
-	#include "miner.h"
+extern "C" {
+#include "miner.h"
 }
-
-#ifdef USE_MAPPED_MEMORY
-static uint32_t **retnonce;
-#else
-static uint32_t **d_retnonce;
-#endif
 
 static cudaStream_t *scr_copy_streams;
 static ulonglong4 **d_scratchpad;
 static uint64_t **d_input;
+static uint32_t **d_retnonce;
+
 extern unsigned int CUDABlocks, CUDAThreads;
 
-#define st0		vst0.x
+#define st0 	vst0.x
 #define st1 	vst0.y
 #define st2 	vst0.z
 #define st3 	vst0.w
@@ -46,7 +41,27 @@ extern unsigned int CUDABlocks, CUDAThreads;
 
 __noinline__ __device__ uint64_t bitselect(const uint64_t a, const uint64_t b, const uint64_t c) { return(a ^ (c & (b ^ a))); }
 __noinline__ __device__ uint64_t cuda_rotl641(const uint64_t x) { return((x << 1) | (x >> 63)); }
+
+#if __CUDA_ARCH__ >= 320
+__device__ __forceinline__ uint64_t cuda_rotl64(const uint64_t value, const int offset)
+{
+	uint2 result;
+	if(offset >= 32) {
+		asm("shf.l.wrap.b32 %0, %1, %2, %3;"
+			: "=r"(result.x) : "r"(__double2loint(__longlong_as_double(value))), "r"(__double2hiint(__longlong_as_double(value))), "r"(offset));
+		asm("shf.l.wrap.b32 %0, %1, %2, %3;"
+			: "=r"(result.y) : "r"(__double2hiint(__longlong_as_double(value))), "r"(__double2loint(__longlong_as_double(value))), "r"(offset));
+	} else {
+		asm("shf.l.wrap.b32 %0, %1, %2, %3;"
+			: "=r"(result.x) : "r"(__double2hiint(__longlong_as_double(value))), "r"(__double2loint(__longlong_as_double(value))), "r"(offset));
+		asm("shf.l.wrap.b32 %0, %1, %2, %3;"
+			: "=r"(result.y) : "r"(__double2loint(__longlong_as_double(value))), "r"(__double2hiint(__longlong_as_double(value))), "r"(offset));
+	}
+	return __double_as_longlong(__hiloint2double(result.y, result.x));
+}
+#else
 __noinline__ __device__ uint64_t cuda_rotl64(const uint64_t x, const uint8_t y) { return((x << y) | (x >> (64 - y))); }
+#endif
 
 #define ROTL64(x, y) (cuda_rotl64((x), (y)))
 #define ROTL641(x) (cuda_rotl641(x))
@@ -107,7 +122,7 @@ __noinline__ __device__ uint64_t cuda_rotl64(const uint64_t x, const uint8_t y) 
 	\
 	tmp1 = st0; st0 = bitselect(st0 ^ st2, st0, st1); st1 = bitselect(st1 ^ st3, st1, st2); st2 = bitselect(st2 ^ st4, st2, st3); st3 = bitselect(st3 ^ tmp1, st3, st4); \
 	st0 ^= 1;
-	
+
 #define LASTRND2() \
 	bc[2] = st2 ^ st7 ^ st12 * st17 * st22 ^ ROTL64(st4 ^ st9 ^ st14 * st19 * st24, 1); \
 	bc[3] = st3 ^ st8 ^ st13 * st18 * st23 ^ ROTL64(st0 ^ st5 ^ st10 * st15 * st20, 1); \
@@ -117,7 +132,7 @@ __noinline__ __device__ uint64_t cuda_rotl64(const uint64_t x, const uint8_t y) 
 	st4 = ROTL64(st24 ^ bc[3], 14); \
 	st3 = ROTL64(st18 ^ bc[2], 21); \
 	st3 = bitselect(st3 ^ st0, st3, st4);
-	
+
 __device__ ulonglong4 operator^(const ulonglong4 &a, const ulonglong4 &b)
 {
 	return(make_ulonglong4(a.x ^ b.x, a.y ^ b.y, a.z ^ b.z, a.w ^ b.w));
@@ -127,13 +142,14 @@ __device__ ulonglong4 operator^(const ulonglong4 &a, const ulonglong4 &b)
 
 #define MIX_ALL MIX(vst0); MIX(vst4); MIX(vst8); MIX(vst12); MIX(vst16); MIX(vst20);
 
-__global__ void wk(uint32_t * __restrict__ retnonce, const uint64_t * __restrict__ input, const ulonglong4 * __restrict__ scratchpad, const uint32_t scr_size, uint64_t nonce, const uint32_t target)
+__global__
+void wk(uint32_t * __restrict__ retnonce, const uint64_t * __restrict__ input, const ulonglong4 * __restrict__ scratchpad, const uint32_t scr_size, uint64_t nonce, const uint32_t target)
 {
 	ulonglong4 vst0, vst4, vst8, vst12, vst16, vst20;
 	uint64_t __restrict__ bc[5], st24, tmp1, tmp2;
-	
+
 	nonce += (blockDim.x * blockIdx.x) + threadIdx.x;
-	
+
 	vst0 	= make_ulonglong4((nonce << 8) + (input[0] & 0xFF), input[1] & 0xFFFFFFFFFFFFFF00ULL, input[2], input[3]);
 	vst4 	= make_ulonglong4(input[4], input[5], input[6], input[7]);
 	vst8 	= make_ulonglong4(input[8], input[9], (input[10] & 0xFF) | 0x100, 0);
@@ -141,36 +157,36 @@ __global__ void wk(uint32_t * __restrict__ retnonce, const uint64_t * __restrict
 	vst16 	= make_ulonglong4(0x8000000000000000ULL, 0, 0, 0);
 	vst20	= make_ulonglong4(0, 0, 0, 0);
 	st24 	= 0;
-	
+
 	RND();
 	MIX_ALL;
-	
+
 	for(int i = 0; i < 22; ++i)
 	{
 		RND();
 		MIX_ALL;
 	}
-	
+
 	LASTRND1();
-	
+
 	vst4 	= make_ulonglong4(1, 0, 0, 0);
 	vst8 	= make_ulonglong4(0, 0, 0, 0);
 	vst12 	= make_ulonglong4(0, 0, 0, 0);
 	vst16	= make_ulonglong4(0x8000000000000000ULL, 0, 0, 0);
 	vst20	= make_ulonglong4(0, 0, 0, 0);
 	st24	= 0;
-	
+
 	RND();
 	MIX_ALL;
-	
+
 	for(int i = 0; i < 22; ++i)
 	{
 		RND();
 		MIX_ALL;
 	}
-	
+
 	LASTRND2();
-	
+
 	if((st3 >> 32) <= target) *retnonce = (uint32_t)nonce;
 }
 
@@ -184,109 +200,104 @@ extern "C" void InitCUDA(uint32_t threads, char **devstrs)
 {
 	struct cudaDeviceProp prop;
 	int numdevs;
-	
+
 	if(cudaGetDeviceCount(&numdevs) != cudaSuccess)
 	{
 		applog(LOG_ERR, "Something's fucked - can't get number of CUDA devices.");
 		exit(0);
 	}
-	
+
 	if(threads > numdevs)
 	{
 		applog(LOG_ERR, "You specified more threads than there are CUDA devices, you idiot.");
 		exit(0);
 	}
-	
+
 	scr_copy_streams = (cudaStream_t *)malloc(sizeof(cudaStream_t) * threads);
-	
+
 	d_scratchpad = (ulonglong4 **)malloc(sizeof(ulonglong4 *) * threads);
 	d_input = (uint64_t **)malloc(sizeof(uint64_t *) * threads);
-	
-	#ifdef USE_MAPPED_MEMORY
-	retnonce = (uint32_t **)malloc(sizeof(uint32_t *) * threads);
-	#else
 	d_retnonce = (uint32_t **)malloc(sizeof(uint32_t *) * threads);
-	#endif
-	
+
 	for(int i = 0; i < threads; ++i)
 	{
-		cudaSetDevice(i);
-		cudaDeviceReset();
-		cudaGetDeviceProperties(&prop, 0);
-		devstrs[i] = (char *)malloc(sizeof(char) * (strlen(prop.name) + 1));
-		strcpy(devstrs[i], prop.name);
-		
-		cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync);
-		#ifdef USE_MAPPED_MEMORY
-		cudaSetDeviceFlags(cudaDeviceMapHost);
-		#endif
-		cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
-		
-		cudaMalloc(&d_scratchpad[i], WILD_KECCAK_SCRATCHPAD_BUFFSIZE);
-		#ifdef USE_MAPPED_MEMORY
-		cudaHostAlloc(&retnonce[i], sizeof(uint32_t), cudaHostAllocMapped);
-		#else
-		cudaMalloc(&d_retnonce[i], sizeof(uint32_t));
-		#endif
-		cudaMalloc(&d_input[i], 81);
-		cudaStreamCreate(&scr_copy_streams[i]);
+		cudaGetDeviceProperties(&prop, i);
+		devstrs[i] = strdup(prop.name);
 	}
 
 }
 
-extern "C" void CUDASetDevice(uint32_t thread_id) { cudaSetDevice(thread_id); }
+extern "C" void CUDASetDevice(uint32_t thread_id)
+{
+	int i = (int) thread_id;
+	cudaSetDevice(i);
+	cudaDeviceReset();
+	cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync);
+
+	#ifdef USE_MAPPED_MEMORY
+	cudaSetDeviceFlags(cudaDeviceMapHost);
+	cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
+	#endif
+
+	cudaMalloc(&d_scratchpad[i], WILD_KECCAK_SCRATCHPAD_BUFFSIZE);
+
+#ifdef USE_MAPPED_MEMORY
+	cudaHostAlloc(&d_retnonce[i], sizeof(uint32_t), cudaHostAllocMapped);
+#else
+	cudaMalloc(&d_retnonce[i], sizeof(uint32_t));
+#endif
+	cudaMalloc(&d_input[i], 88);
+	cudaStreamCreate(&scr_copy_streams[i]);
+}
 
 extern "C" int scanhash_wildkeccak(int thr_id, uint32_t *pdata, const uint32_t *ptarget, uint32_t max_nonce, unsigned long *hashes_done)
 {
 	uint32_t *nonceptr = ((uint32_t *)(((uint8_t *)pdata) + 1));
 	uint32_t n = *nonceptr;
 	uint32_t first = n, blocks = CUDABlocks, threads = CUDAThreads;
-	
-	cudaMemcpy(d_input[thr_id], pdata, sizeof(uint8_t) * 81, cudaMemcpyHostToDevice);
-	
-	#ifdef USE_MAPPED_MEMORY
-	*(retnonce[thr_id]) = 0xFFFFFFFFUL;
+
+	cudaMemcpy(d_input[thr_id], pdata, 88, cudaMemcpyHostToDevice);
+
+#ifdef USE_MAPPED_MEMORY
+	*(d_retnonce[thr_id]) = 0xFFFFFFFFUL;
 	uint32_t *dnonce;
-	cudaHostGetDevicePointer(&dnonce, retnonce[thr_id], 0);
-	#else
+	cudaHostGetDevicePointer(&dnonce, d_retnonce[thr_id], 0);
+#else
 	cudaMemset(d_retnonce[thr_id], 0xFF, sizeof(uint32_t));
 	uint32_t h_retnonce;
-	#endif
-	
+#endif
+
 	cudaStreamSynchronize(scr_copy_streams[thr_id]);
-	
+
 	do
 	{
 		dim3 block(blocks);
 		dim3 thread(threads);
-		
-		#ifdef USE_MAPPED_MEMORY
-		wk<<<block, thread>>>(dnonce, d_input[thr_id], d_scratchpad[thr_id], (uint32_t)(scratchpad_size >> 2), n, ptarget[7]);
-		cudaDeviceSynchronize();
-		
-		if(*(retnonce[thr_id]) < 0xFFFFFFFFU)
+
+#ifdef USE_MAPPED_MEMORY
+		wk<<<block, thread, 0, scr_copy_streams[thr_id]>>>(dnonce, d_input[thr_id], d_scratchpad[thr_id], (uint32_t)(scratchpad_size >> 2), n, ptarget[7]);
+		//cudaDeviceSynchronize();
+		if(*(d_retnonce[thr_id]) < 0xFFFFFFFFU)
 		{
 			*nonceptr = *(retnonce[thr_id]);
 			*hashes_done = *(retnonce[thr_id]) - first + 1;
 			return(1);
 		}
-		#else
-		wk<<<block, thread>>>(d_retnonce[thr_id], d_input[thr_id], d_scratchpad[thr_id], (uint32_t)(scratchpad_size >> 2), n, ptarget[7]);
-		cudaDeviceSynchronize();
-		
+#else
+		wk<<<block, thread, 0, scr_copy_streams[thr_id]>>>(d_retnonce[thr_id], d_input[thr_id], d_scratchpad[thr_id], (uint32_t)(scratchpad_size >> 2), n, ptarget[7]);
+		//cudaDeviceSynchronize();
 		cudaMemcpy(&h_retnonce, d_retnonce[thr_id], sizeof(uint32_t), cudaMemcpyDeviceToHost);
-		
 		if(h_retnonce < 0xFFFFFFFFU)
 		{
 			*nonceptr = h_retnonce;
 			*hashes_done = h_retnonce - first + 1;
 			return(1);
 		}
-		#endif
-		
+#endif
+
 		n += blocks * threads;
 	} while(n < max_nonce && !work_restart[thr_id].restart);
-			
+
 	*hashes_done = n - first + 1;
 	return(0);
 }
