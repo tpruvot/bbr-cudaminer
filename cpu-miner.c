@@ -153,7 +153,7 @@ static const bool opt_time = true;
 static const enum mining_algo opt_algo = ALGO_WILD_KECCAK;
 static int opt_n_threads = 1;
 static int num_processors;
-static char *rpc_url;
+static char *rpc_url = NULL;
 static char *rpc_userpass;
 static char *rpc_user, *rpc_pass;
 char *opt_cert;
@@ -1205,7 +1205,8 @@ static void *miner_thread(void *userdata)
 		unsigned long hashes_done;
 		struct timeval tv_start, tv_end, diff;
 
-		while(!scratchpad_size || !stratum_have_work) sleep(1);
+		if (!opt_benchmark)
+			while(!scratchpad_size || !stratum_have_work) sleep(1);
 
 		pthread_mutex_lock(&g_work_lock);
 
@@ -2128,13 +2129,13 @@ int main(int argc, char *argv[]) {
 
 	GetScratchpad();
 
-	if(!rpc_url)
+	if(!rpc_url && !opt_benchmark)
 	{
 		fprintf(stderr, "%s: no URL supplied\n", argv[0]);
 		show_usage_and_exit(1);
 	}
 
-	if (!rpc_userpass)
+	if (!rpc_userpass && !opt_benchmark)
 	{
 		rpc_userpass = malloc(strlen(rpc_user) + strlen(rpc_pass) + 2);
 		if(!rpc_userpass) return(1);
@@ -2193,7 +2194,7 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
-	if (want_stratum)
+	if (want_stratum && !opt_benchmark)
 	{
 		/* init stratum thread info */
 		stratum_thr_id = opt_n_threads + 2;
