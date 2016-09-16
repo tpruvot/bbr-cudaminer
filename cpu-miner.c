@@ -133,6 +133,7 @@ static const char *algo_names[] = {
 
 bool opt_debug = false;
 bool opt_protocol = false;
+static bool opt_keepalive = false ;
 static bool opt_benchmark = false;
 bool opt_redirect = true;
 bool want_longpoll = true;
@@ -222,6 +223,7 @@ Options:\n\
 	    --cert=FILE       certificate for mining server using SSL\n\
 	-x, --proxy=[PROTOCOL://]HOST[:PORT]  connect through a proxy\n\
 	-t, --threads=N       number of miner threads (default: number of processors)\n\
+	-K, --keepalive       Send keepalive to prevent timeout (requires pool support)\n\
 	-r, --retries=N       number of times to retry if a network call fails\n\
 	(default: retry indefinitely)\n\
 	-R, --retry-pause=N   time to pause between retries, in seconds (default: 30)\n\
@@ -255,7 +257,7 @@ static char const short_options[] =
 #ifdef HAVE_SYSLOG_H
 	"S"
 #endif
-	"a:c:Dhp:Px:qr:R:s:t:T:o:u:O:V:k:l:";
+	"a:c:Dhp:Px:Kqr:R:s:t:T:o:u:O:V:k:l:";
 
 static struct option const options[] = {
 	{ "algo", 1, NULL, 'a' },
@@ -269,6 +271,7 @@ static struct option const options[] = {
 	{ "config", 1, NULL, 'c' },
 	{ "debug", 0, NULL, 'D' },
 	{ "help", 0, NULL, 'h' },
+	{ "keepalive", 0, NULL, 'K' },
 	{ "no-longpoll", 0, NULL, 1003 },
 	{ "no-redirect", 0, NULL, 1009 },
 	{ "no-stratum", 0, NULL, 1007 },
@@ -1453,6 +1456,10 @@ static bool stratum_handle_response(char *buf) {
 			status = json_object_get(res_val, "status");
 		if(status) {
 			const char *s = json_string_value(status);
+			if (!strcmp(s, "KEEPALIVED")) {
+				applog(LOG_INFO, "Keepalive receveid");
+				goto out;
+			}
 			valid = !strcmp(s, "OK") && json_is_null(err_val);
 		} else {
 			valid = json_is_null(err_val);
@@ -1592,7 +1599,12 @@ static void *stratum_thread(void *userdata) {
 			}
 		}
 
-		if (!stratum_socket_full(&stratum, 400)) {
+		if (opt_keepalive && !stratum_socket_full(&stratum, 90)) {
+			applog(LOG_INFO, "Keepalive send....");
+			stratum_keepalived(&stratum, rpc2_id);
+			s = NULL;
+		}
+		if (!stratum_socket_full(&stratum, 300)) {
 			applog(LOG_ERR, "Stratum connection timed out");
 			s = NULL;
 		} else
