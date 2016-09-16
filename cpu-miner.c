@@ -1718,7 +1718,11 @@ static void parse_arg(int key, char *arg) {
 			exit(1);
 		}
 		break;
-			  }
+		}
+		case 'K':
+			opt_keepalive = true;
+			applog(LOG_INFO, "Keepalive activated");
+			break;
 	case 'q':
 		opt_quiet = true;
 		break;
