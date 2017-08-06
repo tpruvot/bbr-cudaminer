@@ -279,8 +279,8 @@ extern "C" int scanhash_wildkeccak(int thr_id, uint32_t *pdata, const uint32_t *
 		//cudaDeviceSynchronize();
 		if(*(d_retnonce[thr_id]) < 0xFFFFFFFFU)
 		{
-			*nonceptr = *(retnonce[thr_id]);
-			*hashes_done = *(retnonce[thr_id]) - first + 1;
+			*nonceptr = *(d_retnonce[thr_id]);
+			*hashes_done = *(d_retnonce[thr_id]) - first + 1;
 			return(1);
 		}
 #else

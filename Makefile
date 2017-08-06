@@ -1,4 +1,4 @@
-CUDA	= /usr/local/cuda-7.5
+CUDA	= /usr/local/cuda
 
 CC	= gcc
 NVCC	= $(CUDA)/bin/nvcc

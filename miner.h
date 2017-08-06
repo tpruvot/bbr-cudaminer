@@ -178,7 +178,7 @@ extern const char jsonrpc_2;
 extern char rpc2_id[65];
 
 // pad 197340288
-#define WILD_KECCAK_SCRATCHPAD_BUFFSIZE (1UL << 28)
+#define WILD_KECCAK_SCRATCHPAD_BUFFSIZE (1UL << 29)
 struct  __attribute__((__packed__)) scratchpad_hi
 {
     unsigned char prevhash[32];
